@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ピーマン農家 売上・経費管理</title>
+<style>
+  :root{
+    --green:#2e7d32; --green-d:#1b5e20; --green-l:#e8f5e9;
+    --red:#c62828; --blue:#1565c0; --bg:#f4f6f4; --card:#fff;
+    --line:#d7ddd7; --text:#1d231d; --muted:#5f6b5f;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  body{margin:0;font-family:-apple-system,"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;
+    background:var(--bg);color:var(--text);font-size:17px;line-height:1.5;}
+  header{background:var(--green);color:#fff;padding:14px 16px;position:sticky;top:0;z-index:10;
+    box-shadow:0 2px 6px rgba(0,0,0,.15);}
+  header h1{margin:0;font-size:20px;display:flex;align-items:center;gap:8px;}
+  .wrap{max-width:760px;margin:0 auto;padding:14px;}
+  /* tabs */
+  nav{display:flex;background:var(--green-d);position:sticky;top:52px;z-index:9;}
+  nav button{flex:1;background:none;border:none;color:#cde9cf;font-size:16px;font-weight:700;
+    padding:14px 4px;cursor:pointer;border-bottom:4px solid transparent;}
+  nav button.active{color:#fff;border-bottom-color:#ffd54f;background:rgba(255,255,255,.08);}
+  /* cards */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;}
+  .card h2{margin:0 0 12px;font-size:18px;}
+  /* summary */
+  .sum{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+  .sum .box{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 10px;text-align:center;}
+  .sum .box .lbl{font-size:14px;color:var(--muted);}
+  .sum .box .val{font-size:22px;font-weight:800;margin-top:4px;}
+  .val.green{color:var(--green);} .val.red{color:var(--red);} .val.blue{color:var(--blue);}
+  /* form */
+  label{display:block;font-size:15px;color:var(--muted);margin:10px 0 4px;font-weight:600;}
+  input,select,textarea{width:100%;font-size:18px;padding:12px;border:1.5px solid var(--line);
+    border-radius:10px;background:#fff;font-family:inherit;}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--green);}
+  .row{display:flex;gap:10px;}
+  .row>div{flex:1;}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;}
+  .chip{padding:9px 14px;border:1.5px solid var(--line);border-radius:999px;background:#fff;
+    font-size:15px;cursor:pointer;font-weight:600;}
+  .chip.on{background:var(--green);color:#fff;border-color:var(--green);}
+  .calc{font-size:15px;color:var(--muted);margin-top:8px;}
+  .calc b{font-size:20px;color:var(--text);}
+  button.big{width:100%;font-size:19px;font-weight:800;color:#fff;background:var(--green);
+    border:none;border-radius:12px;padding:16px;margin-top:14px;cursor:pointer;}
+  button.big:active{background:var(--green-d);}
+  button.big.exp{background:var(--red);}
+  /* list */
+  .item{display:flex;align-items:center;gap:10px;padding:12px 4px;border-bottom:1px solid var(--line);}
+  .item:last-child{border-bottom:none;}
+  .item .d{font-size:13px;color:var(--muted);width:54px;flex-shrink:0;}
+  .item .t{flex:1;min-width:0;}
+  .item .t .top{font-weight:700;}
+  .item .t .sub{font-size:13px;color:var(--muted);}
+  .item .amt{font-weight:800;white-space:nowrap;}
+  .item .amt.in{color:var(--green);} .item .amt.out{color:var(--red);}
+  .item .del{background:none;border:none;color:#bbb;font-size:22px;cursor:pointer;padding:4px 8px;}
+  .empty{color:var(--muted);text-align:center;padding:24px 0;}
+  /* monthbar */
+  .mbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+  .mbar button{background:var(--green-l);border:none;color:var(--green-d);font-size:20px;font-weight:800;
+    width:44px;height:44px;border-radius:10px;cursor:pointer;}
+  .mbar .m{font-size:19px;font-weight:800;}
+  /* table */
+  table{width:100%;border-collapse:collapse;font-size:15px;}
+  th,td{padding:9px 6px;text-align:right;border-bottom:1px solid var(--line);}
+  th:first-child,td:first-child{text-align:left;}
+  th{color:var(--muted);font-size:13px;}
+  td.bar-cell{padding:0;}
+  .bar{height:8px;background:var(--green);border-radius:4px;}
+  .bar.out{background:var(--red);}
+  .tools{display:flex;gap:10px;flex-wrap:wrap;}
+  .tools button{flex:1;min-width:120px;font-size:15px;font-weight:700;padding:13px;border-radius:10px;
+    border:1.5px solid var(--green);background:#fff;color:var(--green-d);cursor:pointer;}
+  .note{font-size:13px;color:var(--muted);margin-top:10px;line-height:1.6;}
+  .hide{display:none;}
+  .yen::before{content:"¥";font-weight:600;}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#323232;color:#fff;
+    padding:12px 20px;border-radius:10px;font-size:15px;opacity:0;transition:.3s;pointer-events:none;z-index:50;}
+  .toast.show{opacity:1;}
+</style>
+</head>
+<body>
+<header><h1>🫑 ピーマン 売上・経費管理
+  <span id="syncBadge" style="margin-left:auto;font-size:13px;font-weight:600;background:rgba(255,255,255,.18);padding:4px 10px;border-radius:999px;cursor:pointer;" onclick="goSettings()">…</span>
+</h1></header>
+<nav>
+  <button data-tab="home" class="active">ホーム</button>
+  <button data-tab="add">記録する</button>
+  <button data-tab="list">一覧</button>
+  <button data-tab="report">集計</button>
+</nav>
+
+<div class="wrap">
+
+  <!-- ===== HOME ===== -->
+  <section id="home">
+    <div class="mbar">
+      <button onclick="moveMonth(-1)">‹</button>
+      <span class="m" id="homeMonth"></span>
+      <button onclick="moveMonth(1)">›</button>
+    </div>
+    <div class="sum">
+      <div class="box"><div class="lbl">売上</div><div class="val green yen" id="sumIn">0</div></div>
+      <div class="box"><div class="lbl">経費</div><div class="val red yen" id="sumOut">0</div></div>
+      <div class="box"><div class="lbl">利益</div><div class="val blue yen" id="sumProfit">0</div></div>
+    </div>
+    <div class="card">
+      <h2>出荷先べつ 売上</h2>
+      <table id="homeByDest"><tbody></tbody></table>
+      <div class="empty hide" id="homeNoData">この月の記録はまだありません</div>
+    </div>
+    <div class="card">
+      <h2>最近の記録</h2>
+      <div id="homeRecent"></div>
+    </div>
+  </section>
+
+  <!-- ===== ADD ===== -->
+  <section id="add" class="hide">
+    <div class="card">
+      <div class="row" style="gap:0;margin-bottom:6px;">
+        <button class="chip on" id="modeIn" style="flex:1;border-radius:10px 0 0 10px;"
+          onclick="setMode('in')">＋ 売上</button>
+        <button class="chip" id="modeOut" style="flex:1;border-radius:0 10px 10px 0;"
+          onclick="setMode('out')">－ 経費</button>
+      </div>
+
+      <label>日付</label>
+      <input type="date" id="fDate">
+
+      <!-- sales fields -->
+      <div id="inFields">
+        <label>出荷先</label>
+        <div class="chips" id="destChips"></div>
+        <div class="row">
+          <div>
+            <label id="qtyLabel">数量（箱）</label>
+            <input type="number" id="fQty" inputmode="decimal" placeholder="例 20" oninput="calc()">
+          </div>
+          <div>
+            <label>単価（円）</label>
+            <input type="number" id="fPrice" inputmode="decimal" placeholder="例 800" oninput="calc()">
+          </div>
+        </div>
+        <div class="calc">金額（自動計算）：<b class="yen" id="calcAmt">0</b>
+          <span id="calcHint" style="margin-left:8px;"></span></div>
+      </div>
+
+      <!-- expense fields -->
+      <div id="outFields" class="hide">
+        <label>分類</label>
+        <div class="chips" id="catChips"></div>
+        <label>金額（円）</label>
+        <input type="number" id="fOutAmt" inputmode="decimal" placeholder="例 5000">
+      </div>
+
+      <label>メモ（任意）</label>
+      <input type="text" id="fMemo" placeholder="例 L玉中心 / ○○農協">
+
+      <button class="big" id="saveBtn" onclick="save()">この内容で記録する</button>
+    </div>
+  </section>
+
+  <!-- ===== LIST ===== -->
+  <section id="list" class="hide">
+    <div class="mbar">
+      <button onclick="moveMonth(-1)">‹</button>
+      <span class="m" id="listMonth"></span>
+      <button onclick="moveMonth(1)">›</button>
+    </div>
+    <div class="card">
+      <div id="listBody"></div>
+    </div>
+  </section>
+
+  <!-- ===== REPORT ===== -->
+  <section id="report" class="hide">
+    <div class="card">
+      <h2>月べつ 売上・経費（直近12か月）</h2>
+      <table id="monthlyTable"><tbody></tbody></table>
+    </div>
+    <div class="card">
+      <h2>経費の内わけ（この年）</h2>
+      <table id="catTable"><tbody></tbody></table>
+      <div class="empty hide" id="catNoData">経費の記録がまだありません</div>
+    </div>
+    <div class="card" id="syncCard">
+      <h2>クラウド一元管理（自動同期）</h2>
+      <div id="syncStatusLine" class="note" style="margin-top:0;"></div>
+      <label>同期用アドレス（Apps Scriptのデプロイ先URL）</label>
+      <input type="text" id="syncUrlInput" placeholder="https://script.google.com/macros/s/............/exec">
+      <div class="tools" style="margin-top:10px;">
+        <button onclick="saveSyncURL()" style="background:var(--green);color:#fff;border-color:var(--green);">💾 アドレスを保存</button>
+        <button onclick="syncNow(true)">🔄 今すぐ同期</button>
+        <button onclick="clearSyncURL()">解除</button>
+      </div>
+      <div class="note">
+        ※ 設定すると、入力した記録がGoogleスプレッドシートに自動で保存され、
+        スマホ・パソコンのどちらからでも同じデータが見られます。<br>
+        ※ アドレスの作り方は付属の「セットアップ手順.txt」をご覧ください。
+        家族の全部の端末で<b>同じアドレス</b>を入れてください。
+      </div>
+    </div>
+    <div class="card">
+      <h2>データの保存（バックアップ）</h2>
+      <div class="tools">
+        <button onclick="exportJSON()">📁 書き出し（保存）</button>
+        <button onclick="document.getElementById('importFile').click()">📥 読み込み（復元）</button>
+        <button onclick="exportCSV()">📊 CSVで出す</button>
+      </div>
+      <input type="file" id="importFile" accept=".json" class="hide" onchange="importJSON(event)">
+      <div class="note">
+        ※ 記録はこの端末のブラウザに保存されます。<br>
+        ※ スマホとパソコンで同じデータを使うときは、「書き出し」で出来たファイルを
+        Google ドライブやLINEで送り、もう一方の端末で「読み込み」してください。<br>
+        ※ 機種変更やアプリ削除に備え、ときどき「書き出し」で保存しておくと安心です。
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ===== データ =====
+const KEY = 'piiman_kakei_v1';
+const DESTS = ['JA・農協','市場','直売所','ネット販売','その他'];
+const CATS  = ['肥料','農薬','燃料','資材','種苗','人件費','出荷資材','機械・修理','その他'];
+let data = load();           // {records:[...]}
+let cur = new Date();        // 表示中の月
+let mode = 'in';
+let selDest = DESTS[0];
+let selCat = CATS[0];
+
+// ===== 同期（クラウド一元管理）=====
+const URLKEY = 'piiman_sync_url';
+let syncURL = localStorage.getItem(URLKEY) || '';
+let syncing = false;
+function active(){ return data.records.filter(r=>!r.deleted); }
+
+function load(){
+  try{ const d = JSON.parse(localStorage.getItem(KEY)); if(d&&d.records) return d; }catch(e){}
+  return {records:[]};
+}
+function persist(){ localStorage.setItem(KEY, JSON.stringify(data)); }
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+function yen(n){ return Math.round(n).toLocaleString('ja-JP'); }
+function ym(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function ymLabel(d){ return d.getFullYear()+'年'+(d.getMonth()+1)+'月'; }
+function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+
+// ===== タブ =====
+document.querySelectorAll('nav button').forEach(b=>{
+  b.onclick=()=>{
+    document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    ['home','add','list','report'].forEach(id=>document.getElementById(id).classList.add('hide'));
+    document.getElementById(b.dataset.tab).classList.remove('hide');
+    render();
+  };
+});
+
+// ===== チップ生成 =====
+function buildChips(){
+  const dc=document.getElementById('destChips'); dc.innerHTML='';
+  DESTS.forEach(d=>{
+    const el=document.createElement('div'); el.className='chip'+(d===selDest?' on':''); el.textContent=d;
+    el.onclick=()=>{selDest=d; buildChips();};
+    dc.appendChild(el);
+  });
+  const cc=document.getElementById('catChips'); cc.innerHTML='';
+  CATS.forEach(c=>{
+    const el=document.createElement('div'); el.className='chip'+(c===selCat?' on':''); el.textContent=c;
+    el.onclick=()=>{selCat=c; buildChips();};
+    cc.appendChild(el);
+  });
+}
+
+// ===== 入力モード =====
+function setMode(m){
+  mode=m;
+  document.getElementById('modeIn').classList.toggle('on',m==='in');
+  document.getElementById('modeOut').classList.toggle('on',m==='out');
+  document.getElementById('inFields').classList.toggle('hide',m!=='in');
+  document.getElementById('outFields').classList.toggle('hide',m!=='out');
+  const btn=document.getElementById('saveBtn');
+  btn.classList.toggle('exp',m==='out');
+}
+function calc(){
+  const q=parseFloat(document.getElementById('fQty').value)||0;
+  const p=parseFloat(document.getElementById('fPrice').value)||0;
+  document.getElementById('calcAmt').textContent=yen(q*p);
+}
+
+// ===== 保存 =====
+function save(){
+  const date=document.getElementById('fDate').value || todayStr();
+  const memo=document.getElementById('fMemo').value.trim();
+  const now=Date.now();
+  if(mode==='in'){
+    const q=parseFloat(document.getElementById('fQty').value)||0;
+    const p=parseFloat(document.getElementById('fPrice').value)||0;
+    const amt=q*p;
+    if(amt<=0){ toast('数量と単価を入れてください'); return; }
+    data.records.push({id:uid(),type:'in',date,dest:selDest,qty:q,price:p,amount:amt,memo,deleted:false,updatedAt:now});
+  }else{
+    const amt=parseFloat(document.getElementById('fOutAmt').value)||0;
+    if(amt<=0){ toast('金額を入れてください'); return; }
+    data.records.push({id:uid(),type:'out',date,cat:selCat,amount:amt,memo,deleted:false,updatedAt:now});
+  }
+  persist();
+  // 入力欄クリア
+  document.getElementById('fQty').value='';
+  document.getElementById('fPrice').value='';
+  document.getElementById('fOutAmt').value='';
+  document.getElementById('fMemo').value='';
+  calc();
+  toast('記録しました ✓');
+  cur=new Date(date+'T00:00:00');
+  render();
+  syncNow();
+}
+
+function delRecord(id){
+  if(!confirm('この記録を消しますか？')) return;
+  const r=data.records.find(x=>x.id===id);
+  if(r){ r.deleted=true; r.updatedAt=Date.now(); }
+  persist(); render(); toast('削除しました');
+  syncNow();
+}
+
+// ===== 月移動 =====
+function moveMonth(n){ cur=new Date(cur.getFullYear(),cur.getMonth()+n,1); render(); }
+function recsOfMonth(d){ const k=ym(d); return active().filter(r=>r.date.slice(0,7)===k); }
+
+// ===== 描画 =====
+function render(){
+  document.getElementById('homeMonth').textContent=ymLabel(cur);
+  document.getElementById('listMonth').textContent=ymLabel(cur);
+  renderHome();
+  renderList();
+  renderReport();
+}
+
+function renderHome(){
+  const recs=recsOfMonth(cur);
+  const inSum=recs.filter(r=>r.type==='in').reduce((s,r)=>s+r.amount,0);
+  const outSum=recs.filter(r=>r.type==='out').reduce((s,r)=>s+r.amount,0);
+  document.getElementById('sumIn').textContent=yen(inSum);
+  document.getElementById('sumOut').textContent=yen(outSum);
+  const prof=document.getElementById('sumProfit');
+  prof.textContent=yen(inSum-outSum);
+  prof.className='val yen '+((inSum-outSum)>=0?'blue':'red');
+
+  // 出荷先べつ
+  const byd={}; recs.filter(r=>r.type==='in').forEach(r=>byd[r.dest]=(byd[r.dest]||0)+r.amount);
+  const arr=Object.entries(byd).sort((a,b)=>b[1]-a[1]);
+  const max=arr.length?arr[0][1]:0;
+  const tb=document.querySelector('#homeByDest tbody'); tb.innerHTML='';
+  document.getElementById('homeNoData').classList.toggle('hide',arr.length>0);
+  document.getElementById('homeByDest').classList.toggle('hide',arr.length===0);
+  arr.forEach(([d,v])=>{
+    tb.innerHTML+=`<tr><td>${d}</td><td class="bar-cell" style="width:45%">
+      <div class="bar" style="width:${max?Math.max(6,v/max*100):0}%"></div></td>
+      <td class="yen">${yen(v)}</td></tr>`;
+  });
+
+  // 最近の記録（全期間 直近8件）
+  const rec=[...active()].sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id)).slice(0,8);
+  document.getElementById('homeRecent').innerHTML = rec.length? rec.map(itemHTML).join('')
+    : '<div class="empty">「記録する」から入力してみましょう</div>';
+}
+
+function itemHTML(r){
+  const md=r.date.slice(5).replace('-','/');
+  if(r.type==='in'){
+    return `<div class="item"><div class="d">${md}</div>
+      <div class="t"><div class="top">${r.dest}</div>
+      <div class="sub">${r.qty}×${yen(r.price)}${r.memo?' / '+esc(r.memo):''}</div></div>
+      <div class="amt in yen">${yen(r.amount)}</div>
+      <button class="del" onclick="delRecord('${r.id}')">×</button></div>`;
+  }
+  return `<div class="item"><div class="d">${md}</div>
+    <div class="t"><div class="top">${r.cat}</div>
+    <div class="sub">${r.memo?esc(r.memo):'経費'}</div></div>
+    <div class="amt out yen">-${yen(r.amount)}</div>
+    <button class="del" onclick="delRecord('${r.id}')">×</button></div>`;
+}
+
+function renderList(){
+  const recs=recsOfMonth(cur).sort((a,b)=>b.date.localeCompare(a.date)||b.id.localeCompare(a.id));
+  const body=document.getElementById('listBody');
+  body.innerHTML = recs.length? recs.map(itemHTML).join('')
+    : '<div class="empty">この月の記録はありません</div>';
+}
+
+function renderReport(){
+  // 月べつ 直近12か月
+  const tb=document.querySelector('#monthlyTable tbody');
+  tb.innerHTML='<tr><th>月</th><th>売上</th><th>経費</th><th>利益</th></tr>';
+  let maxv=1;
+  const rows=[];
+  for(let i=11;i>=0;i--){
+    const d=new Date(cur.getFullYear(),cur.getMonth()-i,1);
+    const r=recsOfMonth(d);
+    const inn=r.filter(x=>x.type==='in').reduce((s,x)=>s+x.amount,0);
+    const out=r.filter(x=>x.type==='out').reduce((s,x)=>s+x.amount,0);
+    maxv=Math.max(maxv,inn,out);
+    rows.push({label:(d.getMonth()+1)+'月',inn,out,prof:inn-out});
+  }
+  rows.forEach(r=>{
+    if(r.inn===0&&r.out===0) return;
+    tb.innerHTML+=`<tr><td>${r.label}</td>
+      <td class="yen">${yen(r.inn)}</td>
+      <td class="yen">${yen(r.out)}</td>
+      <td class="yen" style="color:${r.prof>=0?'#1565c0':'#c62828'}">${yen(r.prof)}</td></tr>`;
+  });
+
+  // 経費 内わけ（この年）
+  const year=cur.getFullYear();
+  const outs=active().filter(r=>r.type==='out'&&r.date.slice(0,4)==String(year));
+  const byc={}; outs.forEach(r=>byc[r.cat]=(byc[r.cat]||0)+r.amount);
+  const arr=Object.entries(byc).sort((a,b)=>b[1]-a[1]);
+  const total=arr.reduce((s,x)=>s+x[1],0);
+  const ct=document.querySelector('#catTable tbody');
+  document.getElementById('catNoData').classList.toggle('hide',arr.length>0);
+  document.getElementById('catTable').classList.toggle('hide',arr.length===0);
+  ct.innerHTML='<tr><th>分類</th><th>金額</th><th>割合</th></tr>';
+  arr.forEach(([c,v])=>{
+    ct.innerHTML+=`<tr><td>${c}</td><td class="yen">${yen(v)}</td>
+      <td>${total?Math.round(v/total*100):0}%</td></tr>`;
+  });
+  if(arr.length) ct.innerHTML+=`<tr><td><b>合計</b></td><td class="yen"><b>${yen(total)}</b></td><td></td></tr>`;
+}
+
+// ===== バックアップ =====
+function exportJSON(){
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  download(blob,'ピーマン家計_'+todayStr()+'.json');
+  toast('書き出しました');
+}
+function importJSON(e){
+  const f=e.target.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>{
+    try{
+      const d=JSON.parse(r.result);
+      if(!d.records) throw 0;
+      if(confirm('読み込むと今のデータは置きかわります。よろしいですか？')){
+        data=d; persist(); render(); toast('読み込みました ✓');
+      }
+    }catch(err){ toast('ファイルを読めませんでした'); }
+    e.target.value='';
+  };
+  r.readAsText(f);
+}
+function exportCSV(){
+  let rows=[['日付','種別','出荷先/分類','数量','単価','金額','メモ']];
+  [...active()].sort((a,b)=>a.date.localeCompare(b.date)).forEach(r=>{
+    rows.push(r.type==='in'
+      ? [r.date,'売上',r.dest,r.qty,r.price,r.amount,r.memo||'']
+      : [r.date,'経費',r.cat,'','',r.amount,r.memo||'']);
+  });
+  const csv='﻿'+rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\r\n');
+  download(new Blob([csv],{type:'text/csv'}),'ピーマン家計_'+todayStr()+'.csv');
+  toast('CSVを出しました');
+}
+function download(blob,name){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+
+// ===== ユーティリティ =====
+function esc(s){ return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+let toastT;
+function toast(msg){
+  const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),1800);
+}
+
+// ===== 同期処理 =====
+function goSettings(){
+  document.querySelector('nav button[data-tab="report"]').click();
+  document.getElementById('syncCard').scrollIntoView({behavior:'smooth'});
+}
+function setBadge(text,bg){
+  const b=document.getElementById('syncBadge');
+  b.textContent=text;
+  if(bg) b.style.background=bg;
+}
+function refreshSyncUI(){
+  document.getElementById('syncUrlInput').value=syncURL;
+  const line=document.getElementById('syncStatusLine');
+  if(!syncURL){
+    setBadge('未接続','rgba(255,255,255,.18)');
+    line.innerHTML='現在：<b>この端末のみ</b>に保存。下にアドレスを入れると一元管理になります。';
+  }else{
+    line.innerHTML='現在：<b>クラウド同期 オン</b> 🟢';
+  }
+}
+function saveSyncURL(){
+  const v=document.getElementById('syncUrlInput').value.trim();
+  if(v && !/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec/.test(v)){
+    if(!confirm('アドレスの形が想定と違います。このまま保存しますか？')) return;
+  }
+  syncURL=v; localStorage.setItem(URLKEY,syncURL);
+  refreshSyncUI();
+  if(syncURL){ toast('保存しました。同期します…'); syncNow(true); }
+  else toast('保存しました');
+}
+function clearSyncURL(){
+  if(!confirm('クラウド同期を解除しますか？（この端末のデータは残ります）')) return;
+  syncURL=''; localStorage.removeItem(URLKEY); refreshSyncUI(); toast('解除しました');
+}
+async function syncNow(manual){
+  if(!syncURL){ if(manual) toast('先にアドレスを保存してください'); return; }
+  if(syncing) return;
+  syncing=true; setBadge('同期中…','rgba(255,213,79,.35)');
+  try{
+    const res=await fetch(syncURL,{
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'sync',records:data.records})
+    });
+    const out=await res.json();
+    if(!out.ok) throw new Error(out.error||'サーバーエラー');
+    // サーバーの内容で置きかえ（サーバーが正本）
+    data.records=out.records.map(r=>({...r,deleted:!!r.deleted,updatedAt:Number(r.updatedAt)||0}));
+    persist(); render();
+    setBadge('同期OK 🟢','rgba(76,175,80,.45)');
+    if(manual) toast('同期しました ✓');
+  }catch(err){
+    setBadge('同期できず ⚠','rgba(244,67,54,.45)');
+    if(manual) toast('同期できませんでした（通信・アドレスを確認）');
+  }finally{ syncing=false; }
+}
+
+// ===== 初期化 =====
+document.getElementById('fDate').value=todayStr();
+buildChips(); setMode('in'); refreshSyncUI(); render();
+if(syncURL) syncNow();
+</script>
+</body>
+</html>
