@@ -89,8 +89,9 @@
 </h1></header>
 <nav>
   <button data-tab="home" class="active">ホーム</button>
-  <button data-tab="add">記録する</button>
+  <button data-tab="add">記録</button>
   <button data-tab="list">一覧</button>
+  <button data-tab="profit">売り先</button>
   <button data-tab="report">集計</button>
 </nav>
 
@@ -177,6 +178,54 @@
     </div>
   </section>
 
+  <!-- ===== PROFIT (売り先べつ 手取りくらべ) ===== -->
+  <section id="profit" class="hide">
+    <div class="mbar">
+      <button onclick="moveYear(-1)">‹</button>
+      <span class="m" id="profitYear"></span>
+      <button onclick="moveYear(1)">›</button>
+    </div>
+    <div class="card" id="bestBanner" style="background:var(--green-l);border-color:var(--green);">
+      <div id="bestText" style="font-size:16px;"></div>
+    </div>
+    <div class="card">
+      <h2>参考価格（市場相場）</h2>
+      <button onclick="fetchMarketPrice(true)" style="width:100%;background:var(--blue);color:#fff;border:none;border-radius:10px;padding:13px;font-weight:800;font-size:16px;margin-bottom:10px;">📡 市場から自動取得（水戸・大田）</button>
+      <div id="marketList" style="margin-bottom:10px;"></div>
+      <div style="font-size:14px;color:var(--muted);margin-bottom:4px;">手で直すこともできます：</div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+        <div style="font-size:18px;">¥ <input type="number" id="refPriceInp" inputmode="decimal" style="width:88px;padding:10px;text-align:right;font-size:18px;"> <span style="color:var(--muted)">/kg</span></div>
+        <input type="text" id="refNoteInp" placeholder="例 水戸市場 6月" style="flex:1;min-width:150px;">
+        <button onclick="saveRef()" style="background:var(--green);color:#fff;border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:15px;">保存</button>
+      </div>
+      <div class="note" id="refNote"></div>
+    </div>
+    <div class="card">
+      <h2>価格の推移グラフ（月別・円/kg）</h2>
+      <div id="priceChart"><div class="empty">「📡 市場から自動取得」を押すと、水戸・大田・全国の推移が出ます</div></div>
+      <div class="note">神栖に近い<b style="color:var(--green-d)">水戸</b>と<b style="color:#888">全国平均</b>を比べられます。線が上にあるほど高値です。</div>
+    </div>
+    <div class="card">
+      <h2>出荷先べつ 手取りくらべ</h2>
+      <div style="overflow-x:auto;">
+        <table id="profitTable"><tbody></tbody></table>
+      </div>
+      <div class="empty hide" id="profitNoData">この年の売上記録がまだありません</div>
+      <div class="note">「手取り」＝売上から手数料を引いた、実際に受け取る金額です。<br>
+        手取り単価が高い出荷先ほど、同じ量でももうかります。</div>
+    </div>
+    <div class="card">
+      <h2>出荷先の設定（手数料・箱の重さ）</h2>
+      <div id="feeSettings"></div>
+      <button class="big" onclick="saveFees()">この設定を保存する</button>
+      <div class="note">
+        手数料率…JA・市場・直売所・ネットに引かれるおおよその割合(%)。実際の精算書に近い値を入れてください。<br>
+        1箱の重さ…「円/kg」でも比べたいときに入力（任意・空でもOK）。<br>
+        ※ この設定はこの端末に保存されます。スマホ側でも同じ値を入れてください。
+      </div>
+    </div>
+  </section>
+
   <!-- ===== REPORT ===== -->
   <section id="report" class="hide">
     <div class="card">
@@ -231,6 +280,8 @@
 const KEY = 'piiman_kakei_v1';
 const DESTS = ['JA・農協','市場','直売所','ネット販売','その他'];
 const CATS  = ['肥料','農薬','燃料','資材','種苗','人件費','出荷資材','機械・修理','その他'];
+const DEFAULT_FEES = {'JA・農協':15,'市場':10,'直売所':15,'ネット販売':20,'その他':0};
+const FEEKEY = 'piiman_destsettings_v1';
 let data = load();           // {records:[...]}
 let cur = new Date();        // 表示中の月
 let mode = 'in';
@@ -242,6 +293,129 @@ const URLKEY = 'piiman_sync_url';
 let syncURL = localStorage.getItem(URLKEY) || '';
 let syncing = false;
 function active(){ return data.records.filter(r=>!r.deleted); }
+
+// 出荷先ごとの手数料率・箱重量の設定
+let destSettings = loadFees();
+function loadFees(){
+  let o={};
+  try{ o=JSON.parse(localStorage.getItem(FEEKEY))||{}; }catch(e){ o={}; }
+  DESTS.forEach(d=>{ if(!o[d]) o[d]={fee:(DEFAULT_FEES[d]!==undefined?DEFAULT_FEES[d]:0),kg:0}; });
+  return o;
+}
+function persistFees(){ localStorage.setItem(FEEKEY,JSON.stringify(destSettings)); }
+
+// 参考価格（市場相場・円/kg）
+const REFKEY='piiman_refprice_v1';
+let refPrice=loadRef();
+function loadRef(){
+  try{ const d=JSON.parse(localStorage.getItem(REFKEY)); if(d&&d.price) return d; }catch(e){}
+  return {price:586, note:'大田市場 月平均（2026年4月ごろ）'};
+}
+function persistRef(){ localStorage.setItem(REFKEY,JSON.stringify(refPrice)); }
+function buildRef(){
+  document.getElementById('refPriceInp').value=refPrice.price||'';
+  document.getElementById('refNoteInp').value=refPrice.note||'';
+}
+function saveRef(){
+  refPrice={
+    price:parseFloat(document.getElementById('refPriceInp').value)||0,
+    note:document.getElementById('refNoteInp').value.trim()
+  };
+  persistRef(); render(); toast('参考価格を保存しました ✓');
+}
+
+// 市場価格を自動取得（Google側=Apps Script経由でagrineから）
+let marketPrices=[];
+function fmtYM(d){ // "20260501" -> "2026年5月"
+  if(!d||d.length<6) return '';
+  return d.slice(0,4)+'年'+parseInt(d.slice(4,6),10)+'月';
+}
+function renderMarketList(){
+  const el=document.getElementById('marketList');
+  if(!marketPrices.length){ el.innerHTML=''; return; }
+  el.innerHTML=marketPrices.map(p=>
+    '<div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--green-l);border-radius:8px;margin-bottom:6px;">'
+    +'<span style="font-weight:700;">'+p.name+'市場 <span style="font-size:12px;color:var(--muted)">'+fmtYM(p.date)+'</span></span>'
+    +'<span class="yen" style="font-weight:800;color:var(--green-d)">'+yen(p.price)+'/kg</span></div>'
+  ).join('');
+}
+function drawPriceChart(){
+  const box=document.getElementById('priceChart');
+  if(!box) return;
+  const defs=[
+    {name:'水戸',color:'#2e7d32',dash:''},
+    {name:'大田',color:'#1565c0',dash:''},
+    {name:'全国',color:'#888',dash:'5,4'}
+  ];
+  const sList=defs.map(d=>{
+    const m=marketPrices.find(p=>p.name===d.name);
+    return m&&m.series&&m.series.length ? {...d,map:Object.fromEntries(m.series.map(s=>[s.d,s.p]))} : null;
+  }).filter(Boolean);
+  if(!sList.length){ return; } // 取得前は初期メッセージのまま
+
+  // 全月（直近14か月）
+  const allD=new Set();
+  sList.forEach(s=>Object.keys(s.map).forEach(d=>allD.add(d)));
+  let months=[...allD].sort().slice(-14);
+  // 値域
+  let vals=[]; sList.forEach(s=>months.forEach(m=>{ if(s.map[m]!=null) vals.push(s.map[m]); }));
+  if(!vals.length){ return; }
+  let lo=Math.min(...vals), hi=Math.max(...vals);
+  lo=Math.floor(lo/100)*100; hi=Math.ceil(hi/100)*100; if(hi===lo) hi=lo+100;
+  const W=330,H=210,x0=42,x1=320,y0=14,y1=176;
+  const X=i=>months.length===1?(x0+x1)/2:x0+(x1-x0)*i/(months.length-1);
+  const Y=p=>y1-(p-lo)/(hi-lo)*(y1-y0);
+  let svg='<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto;font-family:inherit;">';
+  // Y軸グリッド＋ラベル（lo, mid, hi）
+  [lo,(lo+hi)/2,hi].forEach(v=>{
+    const y=Y(v);
+    svg+='<line x1="'+x0+'" y1="'+y+'" x2="'+x1+'" y2="'+y+'" stroke="#e3e8e3" stroke-width="1"/>';
+    svg+='<text x="'+(x0-4)+'" y="'+(y+4)+'" text-anchor="end" font-size="10" fill="#888">¥'+yen(v)+'</text>';
+  });
+  // X軸ラベル（最大6個）
+  const step=Math.max(1,Math.ceil(months.length/6));
+  months.forEach((d,i)=>{
+    if(i%step===0||i===months.length-1){
+      svg+='<text x="'+X(i)+'" y="'+(y1+15)+'" text-anchor="middle" font-size="10" fill="#888">'
+        +parseInt(d.slice(4,6),10)+'月</text>';
+    }
+  });
+  // 折れ線＋点
+  sList.forEach(s=>{
+    let pts=[];
+    months.forEach((m,i)=>{ if(s.map[m]!=null) pts.push([X(i),Y(s.map[m])]); });
+    if(pts.length>1) svg+='<polyline points="'+pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')
+      +'" fill="none" stroke="'+s.color+'" stroke-width="2.4"'+(s.dash?' stroke-dasharray="'+s.dash+'"':'')+'/>';
+    pts.forEach(p=>{ svg+='<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="2.6" fill="'+s.color+'"/>'; });
+  });
+  svg+='</svg>';
+  // 凡例
+  let legend='<div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-bottom:6px;font-size:13px;font-weight:700;">';
+  sList.forEach(s=>{ legend+='<span style="color:'+s.color+';">●'+s.name+'</span>'; });
+  legend+='</div>';
+  box.innerHTML=legend+svg;
+}
+
+async function fetchMarketPrice(manual){
+  if(!syncURL){ if(manual) toast('先に「集計」で同期アドレスを設定してください'); return; }
+  if(manual) toast('市場価格を取得中…');
+  try{
+    const res=await fetch(syncURL,{
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'price'})
+    });
+    const out=await res.json();
+    if(!out.ok||!out.prices||!out.prices.length) throw new Error('no data');
+    marketPrices=out.prices;
+    const mito=out.prices.find(p=>p.code==='08300')||out.prices[0];
+    refPrice={price:mito.price, note:mito.name+'市場 '+fmtYM(mito.date)+'（自動取得）'};
+    persistRef(); buildRef(); render();
+    if(manual) toast('市場価格を取得しました ✓');
+  }catch(e){
+    if(manual) toast('取得できませんでした（同期アドレス/通信を確認）');
+  }
+}
 
 function load(){
   try{ const d = JSON.parse(localStorage.getItem(KEY)); if(d&&d.records) return d; }catch(e){}
@@ -259,7 +433,7 @@ document.querySelectorAll('nav button').forEach(b=>{
   b.onclick=()=>{
     document.querySelectorAll('nav button').forEach(x=>x.classList.remove('active'));
     b.classList.add('active');
-    ['home','add','list','report'].forEach(id=>document.getElementById(id).classList.add('hide'));
+    ['home','add','list','profit','report'].forEach(id=>document.getElementById(id).classList.add('hide'));
     document.getElementById(b.dataset.tab).classList.remove('hide');
     render();
   };
@@ -336,6 +510,7 @@ function delRecord(id){
 
 // ===== 月移動 =====
 function moveMonth(n){ cur=new Date(cur.getFullYear(),cur.getMonth()+n,1); render(); }
+function moveYear(n){ cur=new Date(cur.getFullYear()+n,cur.getMonth(),1); render(); }
 function recsOfMonth(d){ const k=ym(d); return active().filter(r=>r.date.slice(0,7)===k); }
 
 // ===== 描画 =====
@@ -344,7 +519,113 @@ function render(){
   document.getElementById('listMonth').textContent=ymLabel(cur);
   renderHome();
   renderList();
+  renderProfit();
   renderReport();
+}
+
+// ===== 売り先べつ 手取りくらべ =====
+function renderProfit(){
+  const year=cur.getFullYear();
+  document.getElementById('profitYear').textContent=year+'年';
+  renderMarketList();
+  drawPriceChart();
+  const recs=active().filter(r=>r.type==='in' && r.date.slice(0,4)===String(year));
+  const agg={};
+  recs.forEach(r=>{
+    const s=destSettings[r.dest]||{fee:0,kg:0};
+    if(!agg[r.dest]) agg[r.dest]={qty:0,gross:0,net:0,kg:0};
+    const a=agg[r.dest];
+    a.qty+=r.qty||0;
+    a.gross+=r.amount;
+    a.net+=r.amount*(1-(s.fee||0)/100);
+    a.kg+=(r.qty||0)*(s.kg||0);
+  });
+  const arr=Object.entries(agg).map(([d,a])=>({
+    dest:d, qty:a.qty, gross:a.gross, net:a.net, kg:a.kg, fee:a.gross-a.net,
+    unit:a.qty?a.net/a.qty:0, perkg:a.kg?a.net/a.kg:0
+  })).sort((x,y)=>y.unit-x.unit);
+
+  const noData=document.getElementById('profitNoData');
+  const banner=document.getElementById('bestBanner');
+  const anyKg=arr.some(a=>a.kg>0);
+  const tb=document.querySelector('#profitTable tbody');
+  const ref=refPrice.price||0;
+  const showRef=anyKg && ref>0;
+
+  // 参考価格の説明
+  document.getElementById('refNote').innerHTML = ref>0
+    ? '市場相場 <b class="yen">'+yen(ref)+'/kg</b>'+(refPrice.note?'〔'+esc(refPrice.note)+'〕':'')
+      +' と比べます。<br>出荷先の「1箱の重さ(kg)」を設定すると、下の表に<b>相場比</b>（相場より高い+／安い−）が出ます。'
+    : '参考にする市場相場（円/kg）を入れておくと、自分の手取り単価と比べられます。';
+
+  if(arr.length===0){
+    noData.classList.remove('hide');
+    document.getElementById('profitTable').classList.add('hide');
+    banner.classList.add('hide');
+    tb.innerHTML=''; return;
+  }
+  noData.classList.add('hide');
+  document.getElementById('profitTable').classList.remove('hide');
+  banner.classList.remove('hide');
+
+  // 一番得な出荷先バナー
+  const best=arr[0];
+  let msg='🏆 いちばん手取りが多いのは <b>'+best.dest+'</b><br>'
+    +'1箱あたり手取り <b class="yen">'+yen(best.unit)+'</b>';
+  const worst=[...arr].filter(a=>a.unit>0).pop();
+  if(worst && worst.dest!==best.dest && worst.unit>0){
+    const ratio=(best.unit/worst.unit);
+    msg+=' （'+worst.dest+'の <b>'+ratio.toFixed(1)+'倍</b>）';
+  }
+  document.getElementById('bestText').innerHTML=msg;
+
+  // 表
+  let head='<tr><th>出荷先</th><th>箱数</th><th>売上</th><th>手数料</th><th>手取り</th><th>手取り単価<br>(円/箱)</th>'
+    +(anyKg?'<th>円/kg</th>':'')+(showRef?'<th>相場比</th>':'')+'</tr>';
+  tb.innerHTML=head;
+  arr.forEach((a,i)=>{
+    let refCell='';
+    if(showRef){
+      if(a.perkg>0){
+        const diff=(a.perkg/ref-1)*100;
+        const col=diff>=0?'var(--green-d)':'var(--red)';
+        refCell='<td style="color:'+col+';font-weight:700;">'+(diff>=0?'+':'')+diff.toFixed(0)+'%</td>';
+      }else refCell='<td>-</td>';
+    }
+    tb.innerHTML+='<tr>'
+      +'<td>'+(i===0?'⭐ ':'')+a.dest+'</td>'
+      +'<td>'+ (a.qty? a.qty.toLocaleString('ja-JP'):'-') +'</td>'
+      +'<td class="yen">'+yen(a.gross)+'</td>'
+      +'<td class="yen" style="color:var(--red)">'+yen(a.fee)+'</td>'
+      +'<td class="yen"><b>'+yen(a.net)+'</b></td>'
+      +'<td class="yen"><b style="color:var(--green-d)">'+yen(a.unit)+'</b></td>'
+      +(anyKg?'<td class="yen">'+(a.perkg?yen(a.perkg):'-')+'</td>':'')
+      +refCell
+      +'</tr>';
+  });
+}
+
+function buildFeeSettings(){
+  const c=document.getElementById('feeSettings'); c.innerHTML='';
+  DESTS.forEach((d,i)=>{
+    const s=destSettings[d]||{fee:0,kg:0};
+    c.innerHTML+='<div style="display:flex;align-items:center;gap:8px;margin:8px 0;">'
+      +'<div style="flex:1;font-weight:600;font-size:15px;">'+d+'</div>'
+      +'<div style="white-space:nowrap;"><input class="feeInp" data-d="'+i+'" type="number" inputmode="decimal" value="'+(s.fee||0)+'" style="width:62px;padding:8px;text-align:right;"> <span style="font-size:13px;color:var(--muted)">%</span></div>'
+      +'<div style="white-space:nowrap;"><input class="kgInp" data-d="'+i+'" type="number" inputmode="decimal" value="'+(s.kg||'')+'" placeholder="-" style="width:62px;padding:8px;text-align:right;"> <span style="font-size:13px;color:var(--muted)">kg/箱</span></div>'
+      +'</div>';
+  });
+}
+function saveFees(){
+  document.querySelectorAll('.feeInp').forEach(inp=>{
+    const d=DESTS[+inp.dataset.d]; if(!destSettings[d]) destSettings[d]={};
+    destSettings[d].fee=parseFloat(inp.value)||0;
+  });
+  document.querySelectorAll('.kgInp').forEach(inp=>{
+    const d=DESTS[+inp.dataset.d]; if(!destSettings[d]) destSettings[d]={};
+    destSettings[d].kg=parseFloat(inp.value)||0;
+  });
+  persistFees(); render(); toast('設定を保存しました ✓');
 }
 
 function renderHome(){
@@ -543,8 +824,8 @@ async function syncNow(manual){
 
 // ===== 初期化 =====
 document.getElementById('fDate').value=todayStr();
-buildChips(); setMode('in'); refreshSyncUI(); render();
-if(syncURL) syncNow();
+buildChips(); buildFeeSettings(); buildRef(); setMode('in'); refreshSyncUI(); render();
+if(syncURL){ syncNow(); fetchMarketPrice(); }
 </script>
 </body>
 </html>
