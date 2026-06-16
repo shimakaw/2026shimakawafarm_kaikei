@@ -149,6 +149,13 @@
         </div>
         <div class="calc">金額（自動計算）：<b class="yen" id="calcAmt">0</b>
           <span id="calcHint" style="margin-left:8px;"></span></div>
+        <label style="margin-top:12px;">玉のサイズ（任意）</label>
+        <select id="fSize" style="width:100%;font-size:18px;padding:12px;border:1.5px solid var(--line);border-radius:10px;background:#fff;font-family:inherit;">
+          <option value="">指定なし</option>
+          <option value="M">M玉</option>
+          <option value="L">L玉</option>
+          <option value="2L">2L玉</option>
+        </select>
       </div>
 
       <!-- expense fields -->
@@ -193,11 +200,7 @@
       <button onclick="fetchMarketPrice(true)" style="width:100%;background:var(--blue);color:#fff;border:none;border-radius:10px;padding:13px;font-weight:800;font-size:16px;margin-bottom:10px;">📡 市場から自動取得（水戸・大田）</button>
       <div id="marketList" style="margin-bottom:10px;"></div>
       <div style="font-size:14px;color:var(--muted);margin-bottom:4px;">手で直すこともできます：</div>
-      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-        <div style="font-size:18px;">¥ <input type="number" id="refPriceInp" inputmode="decimal" style="width:88px;padding:10px;text-align:right;font-size:18px;"> <span style="color:var(--muted)">/kg</span></div>
-        <input type="text" id="refNoteInp" placeholder="例 水戸市場 6月" style="flex:1;min-width:150px;">
-        <button onclick="saveRef()" style="background:var(--green);color:#fff;border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:15px;">保存</button>
-      </div>
+      <div id="refInputContainer"></div>
       <div class="note" id="refNote"></div>
     </div>
     <div class="card">
@@ -207,6 +210,10 @@
     </div>
     <div class="card">
       <h2>出荷先べつ 手取りくらべ</h2>
+      <div style="display:flex;gap:8px;margin-bottom:10px;">
+        <button id="unitPerBox" onclick="setProfitUnit('per-box')" style="flex:1;background:var(--green);color:#fff;border:none;border-radius:8px;padding:10px;font-weight:700;cursor:pointer;">円/箱</button>
+        <button id="unitPerKg" onclick="setProfitUnit('per-kg')" style="flex:1;background:transparent;color:var(--text);border:1.5px solid var(--line);border-radius:8px;padding:10px;font-weight:700;cursor:pointer;">円/kg</button>
+      </div>
       <div style="overflow-x:auto;">
         <table id="profitTable"><tbody></tbody></table>
       </div>
@@ -280,6 +287,7 @@
 const KEY = 'piiman_kakei_v1';
 const DESTS = ['JA・農協','市場','直売所','ネット販売','その他'];
 const CATS  = ['肥料','農薬','燃料','資材','種苗','人件費','出荷資材','機械・修理','その他'];
+const SIZES = ['M','L','2L'];
 const DEFAULT_FEES = {'JA・農協':15,'市場':10,'直売所':15,'ネット販売':20,'その他':0};
 const FEEKEY = 'piiman_destsettings_v1';
 let data = load();           // {records:[...]}
@@ -287,6 +295,7 @@ let cur = new Date();        // 表示中の月
 let mode = 'in';
 let selDest = DESTS[0];
 let selCat = CATS[0];
+let profitUnit = 'per-box'; // 手取り表示単位
 
 // ===== 同期（クラウド一元管理）=====
 const URLKEY = 'piiman_sync_url';
@@ -308,19 +317,60 @@ function persistFees(){ localStorage.setItem(FEEKEY,JSON.stringify(destSettings)
 const REFKEY='piiman_refprice_v1';
 let refPrice=loadRef();
 function loadRef(){
-  try{ const d=JSON.parse(localStorage.getItem(REFKEY)); if(d&&d.price) return d; }catch(e){}
-  return {price:586, note:'大田市場 月平均（2026年4月ごろ）'};
+  try{
+    const d=JSON.parse(localStorage.getItem(REFKEY));
+    if(d){
+      // 後方互換性：古い形式 {price, note} → 新しい形式に変換
+      if(d.price && !d.default){
+        return {
+          default:{price:d.price, note:d.note||''},
+          sizes:Object.fromEntries(SIZES.map(s=>[s,{price:0,note:''}]))
+        };
+      }
+      if(d.default) return d;
+    }
+  }catch(e){}
+  return {
+    default:{price:586, note:'大田市場 月平均（2026年4月ごろ）'},
+    sizes:Object.fromEntries(SIZES.map(s=>[s,{price:0,note:''}]))
+  };
 }
 function persistRef(){ localStorage.setItem(REFKEY,JSON.stringify(refPrice)); }
+let selRefSize='default';
 function buildRef(){
-  document.getElementById('refPriceInp').value=refPrice.price||'';
-  document.getElementById('refNoteInp').value=refPrice.note||'';
+  const container=document.getElementById('refInputContainer');
+  if(!container) return;
+
+  // タブ作成
+  let tabHtml='<div style="display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap;">';
+  ['default','M','L','2L'].forEach(sz=>{
+    const isActive=selRefSize===sz;
+    const label=sz==='default'?'全サイズ平均':sz+'玉';
+    tabHtml+=`<button onclick="setRefSize('${sz}')" style="padding:8px 12px;border:1.5px solid var(--line);border-radius:8px;background:${isActive?'var(--green)':'#fff'};color:${isActive?'#fff':'var(--text)'};font-weight:700;cursor:pointer;">${label}</button>`;
+  });
+  tabHtml+='</div>';
+
+  const data=refPrice.sizes&&refPrice.sizes[selRefSize] ? refPrice.sizes[selRefSize] : refPrice.default;
+  const priceInput=tabHtml+`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+    <div style="font-size:18px;">¥ <input type="number" id="refPriceInp" inputmode="decimal" style="width:88px;padding:10px;text-align:right;font-size:18px;value="${data.price||''};"> <span style="color:var(--muted)">/kg</span></div>
+    <input type="text" id="refNoteInp" placeholder="例 水戸市場 6月" value="${data.note||''}" style="flex:1;min-width:150px;">
+    <button onclick="saveRef()" style="background:var(--green);color:#fff;border:none;border-radius:10px;padding:10px 16px;font-weight:700;font-size:15px;">保存</button>
+  </div>`;
+  container.innerHTML=priceInput;
+}
+function setRefSize(sz){
+  selRefSize=sz;
+  buildRef();
 }
 function saveRef(){
-  refPrice={
-    price:parseFloat(document.getElementById('refPriceInp').value)||0,
-    note:document.getElementById('refNoteInp').value.trim()
-  };
+  const price=parseFloat(document.getElementById('refPriceInp').value)||0;
+  const note=document.getElementById('refNoteInp').value.trim();
+  if(selRefSize==='default'){
+    refPrice.default={price,note};
+  }else{
+    if(!refPrice.sizes) refPrice.sizes={};
+    refPrice.sizes[selRefSize]={price,note};
+  }
   persistRef(); render(); toast('参考価格を保存しました ✓');
 }
 
@@ -409,8 +459,19 @@ async function fetchMarketPrice(manual){
     if(!out.ok||!out.prices||!out.prices.length) throw new Error('no data');
     marketPrices=out.prices;
     const mito=out.prices.find(p=>p.code==='08300')||out.prices[0];
-    refPrice={price:mito.price, note:mito.name+'市場 '+fmtYM(mito.date)+'（自動取得）'};
-    persistRef(); buildRef(); render();
+    refPrice={
+      default:{price:mito.price, note:mito.name+'市場 '+fmtYM(mito.date)+'（自動取得）'},
+      sizes:Object.fromEntries(SIZES.map(s=>[s,{price:0,note:''}]))
+    };
+    // サイズ別データがあれば設定
+    if(mito.sizes && Array.isArray(mito.sizes)){
+      mito.sizes.forEach(sz=>{
+        if(sz.size && refPrice.sizes[sz.size]){
+          refPrice.sizes[sz.size]={price:sz.price||0, note:mito.name+'市場 '+fmtYM(mito.date)};
+        }
+      });
+    }
+    persistRef(); selRefSize='default'; buildRef(); render();
     if(manual) toast('市場価格を取得しました ✓');
   }catch(e){
     if(manual) toast('取得できませんでした（同期アドレス/通信を確認）');
@@ -475,13 +536,16 @@ function calc(){
 function save(){
   const date=document.getElementById('fDate').value || todayStr();
   const memo=document.getElementById('fMemo').value.trim();
+  const size=document.getElementById('fSize').value || null;
   const now=Date.now();
   if(mode==='in'){
     const q=parseFloat(document.getElementById('fQty').value)||0;
     const p=parseFloat(document.getElementById('fPrice').value)||0;
     const amt=q*p;
     if(amt<=0){ toast('数量と単価を入れてください'); return; }
-    data.records.push({id:uid(),type:'in',date,dest:selDest,qty:q,price:p,amount:amt,memo,deleted:false,updatedAt:now});
+    const rec={id:uid(),type:'in',date,dest:selDest,qty:q,price:p,amount:amt,memo,deleted:false,updatedAt:now};
+    if(size) rec.size=size;
+    data.records.push(rec);
   }else{
     const amt=parseFloat(document.getElementById('fOutAmt').value)||0;
     if(amt<=0){ toast('金額を入れてください'); return; }
@@ -493,6 +557,7 @@ function save(){
   document.getElementById('fPrice').value='';
   document.getElementById('fOutAmt').value='';
   document.getElementById('fMemo').value='';
+  document.getElementById('fSize').value='';
   calc();
   toast('記録しました ✓');
   cur=new Date(date+'T00:00:00');
@@ -527,6 +592,7 @@ function render(){
 function renderProfit(){
   const year=cur.getFullYear();
   document.getElementById('profitYear').textContent=year+'年';
+  buildRef();
   renderMarketList();
   drawPriceChart();
   const recs=active().filter(r=>r.type==='in' && r.date.slice(0,4)===String(year));
@@ -553,8 +619,9 @@ function renderProfit(){
   const showRef=anyKg && ref>0;
 
   // 参考価格の説明
+  const refData=refPrice.default||refPrice;
   document.getElementById('refNote').innerHTML = ref>0
-    ? '市場相場 <b class="yen">'+yen(ref)+'/kg</b>'+(refPrice.note?'〔'+esc(refPrice.note)+'〕':'')
+    ? '市場相場 <b class="yen">'+yen(ref)+'/kg</b>'+(refData.note?'〔'+esc(refData.note)+'〕':'')
       +' と比べます。<br>出荷先の「1箱の重さ(kg)」を設定すると、下の表に<b>相場比</b>（相場より高い+／安い−）が出ます。'
     : '参考にする市場相場（円/kg）を入れておくと、自分の手取り単価と比べられます。';
 
@@ -580,8 +647,13 @@ function renderProfit(){
   document.getElementById('bestText').innerHTML=msg;
 
   // 表
-  let head='<tr><th>出荷先</th><th>箱数</th><th>売上</th><th>手数料</th><th>手取り</th><th>手取り単価<br>(円/箱)</th>'
-    +(anyKg?'<th>円/kg</th>':'')+(showRef?'<th>相場比</th>':'')+'</tr>';
+  let head='<tr><th>出荷先</th><th>箱数</th><th>売上</th><th>手数料</th><th>手取り</th>';
+  if(profitUnit==='per-kg' && anyKg){
+    head+='<th>手取り単価<br>(円/kg)</th>';
+  }else{
+    head+='<th>手取り単価<br>(円/箱)</th>';
+  }
+  head+=(profitUnit!=='per-kg'&&anyKg?'<th>円/kg</th>':'')+(showRef?'<th>相場比</th>':'')+'</tr>';
   tb.innerHTML=head;
   arr.forEach((a,i)=>{
     let refCell='';
@@ -592,14 +664,20 @@ function renderProfit(){
         refCell='<td style="color:'+col+';font-weight:700;">'+(diff>=0?'+':'')+diff.toFixed(0)+'%</td>';
       }else refCell='<td>-</td>';
     }
+    let mainUnitCell='';
+    if(profitUnit==='per-kg' && anyKg){
+      mainUnitCell='<td class="yen"><b style="color:var(--green-d)">'+(a.perkg?yen(a.perkg):'-')+'</b></td>';
+    }else{
+      mainUnitCell='<td class="yen"><b style="color:var(--green-d)">'+yen(a.unit)+'</b></td>';
+    }
     tb.innerHTML+='<tr>'
       +'<td>'+(i===0?'⭐ ':'')+a.dest+'</td>'
       +'<td>'+ (a.qty? a.qty.toLocaleString('ja-JP'):'-') +'</td>'
       +'<td class="yen">'+yen(a.gross)+'</td>'
       +'<td class="yen" style="color:var(--red)">'+yen(a.fee)+'</td>'
       +'<td class="yen"><b>'+yen(a.net)+'</b></td>'
-      +'<td class="yen"><b style="color:var(--green-d)">'+yen(a.unit)+'</b></td>'
-      +(anyKg?'<td class="yen">'+(a.perkg?yen(a.perkg):'-')+'</td>':'')
+      +mainUnitCell
+      +(profitUnit!=='per-kg'&&anyKg?'<td class="yen">'+(a.perkg?yen(a.perkg):'-')+'</td>':'')
       +refCell
       +'</tr>';
   });
@@ -626,6 +704,14 @@ function saveFees(){
     destSettings[d].kg=parseFloat(inp.value)||0;
   });
   persistFees(); render(); toast('設定を保存しました ✓');
+}
+function setProfitUnit(unit){
+  profitUnit=unit;
+  document.getElementById('unitPerBox').style.background=unit==='per-box'?'var(--green)':'transparent';
+  document.getElementById('unitPerBox').style.color=unit==='per-box'?'#fff':'var(--text)';
+  document.getElementById('unitPerKg').style.background=unit==='per-kg'?'var(--green)':'transparent';
+  document.getElementById('unitPerKg').style.color=unit==='per-kg'?'#fff':'var(--text)';
+  renderProfit();
 }
 
 function renderHome(){
@@ -824,7 +910,7 @@ async function syncNow(manual){
 
 // ===== 初期化 =====
 document.getElementById('fDate').value=todayStr();
-buildChips(); buildFeeSettings(); buildRef(); setMode('in'); refreshSyncUI(); render();
+buildChips(); buildFeeSettings(); buildRef(); setMode('in'); refreshSyncUI(); setProfitUnit('per-box'); render();
 if(syncURL){ syncNow(); fetchMarketPrice(); }
 </script>
 </body>
